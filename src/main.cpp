@@ -1,0 +1,28 @@
+#include <Arduino.h>
+#define THERMISTOR_PIN A0
+#define CONST_RESISTOR 10000
+#define THERMISTORNOMINAL 10000
+#define TEMPERATURENOMINAL 25
+#define BCOEFFICIENT 3950
+void setup()
+{
+  pinMode(THERMISTOR_PIN, INPUT);
+  Serial.begin(9600);
+}
+
+void loop()
+{
+  int adcValue = analogRead(THERMISTOR_PIN);
+  float resistance = CONST_RESISTOR / ((1023.0 / adcValue) - 1);
+  float steinhart;
+  steinhart = resistance / THERMISTORNOMINAL;       // (R/Ro)
+  steinhart = log(steinhart);                       // ln(R/Ro)
+  steinhart /= BCOEFFICIENT;                        // 1/B * ln(R/Ro)
+  steinhart += 1.0 / (TEMPERATURENOMINAL + 273.15); // + (1/To)
+  steinhart = 1.0 / steinhart;                      // Invert
+  steinhart -= 273.15;
+  Serial.print("Temperature ");
+  Serial.print(steinhart);
+  Serial.println(" *C"); // convert absolute
+  delay(500);
+}
