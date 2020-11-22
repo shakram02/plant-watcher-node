@@ -1,15 +1,18 @@
 #include <Arduino.h>
+#include <ArduinoJson.h>
 #include <TemperatureSensor.h>
+
 #include "DHT.h"
 
+#define MAIN_DEBUG 0
+
 #define THERMISTOR_PIN A0
+float readTemperature();
+
 #define DHT_PIN D1
 #define DHTTYPE DHT11
-
 DHT dht(DHT_PIN, DHTTYPE);
-
-void showDHT11();
-void showTemperature();
+void readDHT11(unsigned char results[]);
 
 void setup()
 {
@@ -20,14 +23,27 @@ void setup()
 
 void loop()
 {
-  showDHT11();
-  showTemperature();
-}
+  unsigned char temperature = readTemperature();
+  unsigned char dht_results[3] = {0};
 
-void showDHT11()
-{
   // Wait a few seconds between measurements.
   delay(2000);
+
+  readDHT11(dht_results);
+
+  StaticJsonDocument<64> doc;
+  doc["temp"] = temperature;
+  doc["dhtH"] = dht_results[0];
+  doc["dhtT"] = dht_results[1];
+  doc["dhtR"] = dht_results[2];
+  serializeJsonPretty(doc, Serial);
+
+  Serial.println();
+  delay(400);
+}
+
+void readDHT11(unsigned char results[])
+{
   // Reading temperature or humidity takes about 250 milliseconds!
   // Sensor readings may also be up to 2 seconds 'old' (its a very slow sensor)
   float h = dht.readHumidity();
@@ -44,6 +60,7 @@ void showDHT11()
   // Compute heat index in Celsius (isFahreheit = false)
   float hic = dht.computeHeatIndex(t, h, false);
 
+#if MAIN_DEBUG
   Serial.print(F("Humidity: "));
   Serial.print(h);
   Serial.print(F("%  Temperature: "));
@@ -52,15 +69,24 @@ void showDHT11()
   Serial.print(F("Heat index: "));
   Serial.print(hic);
   Serial.print(F("°C "));
+#endif
+
+  results[0] = h;
+  results[1] = t;
+  results[2] = hic;
 }
 
-void showTemperature()
+float readTemperature()
 {
   unsigned short reading = analogRead(THERMISTOR_PIN);
+  float temp = TemperatureSensor.getTemperature(reading);
+#if MAIN_DEBUG
   Serial.println();
   Serial.print("> ");
   Serial.print(reading);
   Serial.print("\nTemperature ");
-  Serial.print(TemperatureSensor.getTemperature(reading));
-  Serial.println(" *C"); // convert absolute
+  Serial.print(temp);
+  Serial.println(" *C");
+#endif
+  return temp;
 }
