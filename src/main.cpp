@@ -1,45 +1,83 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <TemperatureSensor.h>
-
+#include <UpdateDelayer.h>
+#include <SPI.h>
+#include <WiFi101.h>
+#include <WiFiUdp.h>
+#include <RTCZero.h>
+#include <NTPClient.h>
 #include "DHT.h"
 
-#define MAIN_DEBUG 0
+RTCZero rtc;
 
-#define THERMISTOR_PIN A0
+const char *ssid = "TP-LINK_D0510E";
+const char *password = "73730941";
+#define MAIN_DEBUG 0
+WiFiUDP ntpUDP;
+
+// You can specify the time server pool and the offset (in seconds, can be
+// changed later with setTimeOffset() ). Additionaly you can specify the
+// update interval (in milliseconds, can be changed using setUpdateInterval() ).
+NTPClient timeClient(ntpUDP, "europe.pool.ntp.org", 3600, 60000);
+
+#define THERMISTOR_PIN A1
+#define ANALOG_RES 10
+#define WIFI_CONNECTED_PIN 1
 float readTemperature();
 
-#define DHT_PIN D1
+#define DHT_PIN 0
 #define DHTTYPE DHT11
+
 DHT dht(DHT_PIN, DHTTYPE);
+UpdateDelayer dhtDelayer(2000);
+UpdateDelayer tempDelayer(500);
+
 void readDHT11(unsigned char results[]);
+void printWiFiStatus();
+void connectWiFi();
 
 void setup()
 {
-  dht.begin();
   pinMode(THERMISTOR_PIN, INPUT);
+  pinMode(WIFI_CONNECTED_PIN, OUTPUT);
+  analogReadResolution(ANALOG_RES);
+
+  connectWiFi();
+  timeClient.update();
+  dht.begin();
   Serial.begin(9600);
 }
 
+StaticJsonDocument<128> doc; // Store the last readings
 void loop()
 {
-  unsigned char temperature = readTemperature();
-  unsigned char dht_results[3] = {0};
+  bool updated = false;
+  if (dhtDelayer.canUpdate())
+  {
+    updated = true;
+    unsigned char dht_results[3] = {0};
+    readDHT11(dht_results);
+    doc["dhtH"] = dht_results[0];
+    doc["dhtT"] = dht_results[1];
+    doc["dhtR"] = dht_results[2];
+  }
 
-  // Wait a few seconds between measurements.
-  delay(2000);
+  if (tempDelayer.canUpdate())
+  {
+    updated = true;
+    unsigned char temperature = readTemperature();
+    doc["temp"] = temperature;
+  }
 
-  readDHT11(dht_results);
+  if (updated)
+  {
+    doc["epoch"] = timeClient.getEpochTime();
+    serializeJsonPretty(doc, Serial);
+    Serial.println();
+  }
 
-  StaticJsonDocument<64> doc;
-  doc["temp"] = temperature;
-  doc["dhtH"] = dht_results[0];
-  doc["dhtT"] = dht_results[1];
-  doc["dhtR"] = dht_results[2];
-  serializeJsonPretty(doc, Serial);
-
-  Serial.println();
-  delay(400);
+  delay(100);
 }
 
 void readDHT11(unsigned char results[])
@@ -82,11 +120,48 @@ float readTemperature()
   float temp = TemperatureSensor.getTemperature(reading);
 #if MAIN_DEBUG
   Serial.println();
-  Serial.print("> ");
+  Serial.print("TEMP> ");
   Serial.print(reading);
   Serial.print("\nTemperature ");
   Serial.print(temp);
   Serial.println(" *C");
 #endif
   return temp;
+}
+
+void printWiFiStatus()
+{
+  // print the SSID of the network you're attached to:
+  Serial.print("SSID: ");
+  Serial.println(WiFi.SSID());
+
+  // print your WiFi shield's IP address:
+  IPAddress ip = WiFi.localIP();
+  Serial.print("IP Address: ");
+  Serial.println(ip);
+
+  // print the received signal strength:
+  long rssi = WiFi.RSSI();
+  Serial.print("signal strength (RSSI):");
+  Serial.print(rssi);
+  Serial.println(" dBm");
+}
+
+void connectWiFi()
+{
+  int status = WL_IDLE_STATUS;
+  while (status != WL_CONNECTED)
+  {
+#if MAIN_DEBUG
+    Serial.print("Attempting to connect to SSID: ");
+    Serial.println(ssid);
+#endif
+    // Connect to WPA/WPA2 network. Change this line if using open or WEP network:
+    status = WiFi.begin(ssid, password);
+    delay(3000);
+  }
+  digitalWrite(WIFI_CONNECTED_PIN, OUTPUT);
+#if MAIN_DEBUG
+  printWiFiStatus();
+#endif
 }
