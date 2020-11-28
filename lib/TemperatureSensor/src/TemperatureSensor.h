@@ -10,7 +10,6 @@ private:
     TemperatureSensor() = default;
 
 public:
-    // static TemperatureSensor &getInstance();
     TemperatureSensor(const TemperatureSensor &) = delete;
     TemperatureSensor &operator=(const TemperatureSensor &) = delete;
 

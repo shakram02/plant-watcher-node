@@ -1,57 +1,56 @@
+#define MAIN_DEBUG 0
+
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <TemperatureSensor.h>
 #include <UpdateDelayer.h>
 #include <SPI.h>
 #include <WiFi101.h>
-#include <WiFiUdp.h>
-#include <RTCZero.h>
-#include <NTPClient.h>
+#include <Timing.h>
 #include "DHT.h"
-
-RTCZero rtc;
-
-const char *ssid = "TP-LINK_D0510E";
-const char *password = "73730941";
-#define MAIN_DEBUG 0
-WiFiUDP ntpUDP;
-
-// You can specify the time server pool and the offset (in seconds, can be
-// changed later with setTimeOffset() ). Additionaly you can specify the
-// update interval (in milliseconds, can be changed using setUpdateInterval() ).
-NTPClient timeClient(ntpUDP, "europe.pool.ntp.org", 3600, 60000);
+#include "secrets.h"
+const char *ssid = WIFI_SSID;
+const char *password = WIFI_SECRET;
 
 #define THERMISTOR_PIN A1
 #define ANALOG_RES 10
 #define WIFI_CONNECTED_PIN 1
-float readTemperature();
 
 #define DHT_PIN 0
-#define DHTTYPE DHT11
+#define DHT_TYPE DHT11
+#define DHT_INTERVAL 2000
 
-DHT dht(DHT_PIN, DHTTYPE);
-UpdateDelayer dhtDelayer(2000);
+DHT dht(DHT_PIN, DHT_TYPE);
+UpdateDelayer dhtDelayer(DHT_INTERVAL);
 UpdateDelayer tempDelayer(500);
 
+float readTemperature();
 void readDHT11(unsigned char results[]);
 void printWiFiStatus();
 void connectWiFi();
+
+Timing time;
 
 void setup()
 {
   pinMode(THERMISTOR_PIN, INPUT);
   pinMode(WIFI_CONNECTED_PIN, OUTPUT);
   analogReadResolution(ANALOG_RES);
+  Serial.begin(9600);
 
   connectWiFi();
-  timeClient.update();
+
+#if MAIN_DEBUG
+  Serial.println("WiFi connected");
+#endif
+
+  time.setup();
   dht.begin();
-  Serial.begin(9600);
 }
 
-StaticJsonDocument<128> doc; // Store the last readings
 void loop()
 {
+  StaticJsonDocument<128> doc; // Store the last readings
   bool updated = false;
   if (dhtDelayer.canUpdate())
   {
@@ -72,7 +71,7 @@ void loop()
 
   if (updated)
   {
-    doc["epoch"] = timeClient.getEpochTime();
+    doc["epoch"] = time.getEpochTime();
     serializeJsonPretty(doc, Serial);
     Serial.println();
   }
