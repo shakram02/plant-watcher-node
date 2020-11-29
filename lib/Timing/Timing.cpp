@@ -20,11 +20,8 @@ Timing::Timing()
 void Timing::setup()
 {
     this->ntpUDP = new WiFiUDP();
-    Serial.println("WIFI UPD");
     this->timeClient = new NTPClient(*ntpUDP, NTP_SERVER, UTC_OFFSET * 3600, NTP_SYNC_INTERVAL);
-    Serial.println("NTP CLIENT");
     this->timeClient->update();
-    Serial.println("NTP UPDATE ");
 }
 
 Timing::~Timing()

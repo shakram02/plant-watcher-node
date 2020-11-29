@@ -15,6 +15,11 @@ const char *password = WIFI_SECRET;
 #define THERMISTOR_PIN A1
 #define ANALOG_RES 10
 #define WIFI_CONNECTED_PIN 1
+#define SERVER_CONNECTED_PIN LED_BUILTIN
+
+const String HTTP_METHOD = "POST";
+const String HOST_NAME = NODE_SERVER;
+const String PATH_NAME = "/";
 
 #define DHT_PIN 0
 #define DHT_TYPE DHT11
@@ -28,18 +33,24 @@ float readTemperature();
 void readDHT11(unsigned char results[]);
 void printWiFiStatus();
 void connectWiFi();
+void connectServer();
+void deadState(unsigned char indicatorLedPin);
 
 Timing time;
+WiFiClient client;
+const char *secret = NODE_SECRET;
+String deviceUid = "";
 
 void setup()
 {
   pinMode(THERMISTOR_PIN, INPUT);
   pinMode(WIFI_CONNECTED_PIN, OUTPUT);
+  pinMode(SERVER_CONNECTED_PIN, OUTPUT);
   analogReadResolution(ANALOG_RES);
   Serial.begin(9600);
 
   connectWiFi();
-
+  connectServer();
 #if MAIN_DEBUG
   Serial.println("WiFi connected");
 #endif
@@ -50,7 +61,7 @@ void setup()
 
 void loop()
 {
-  StaticJsonDocument<128> doc; // Store the last readings
+  StaticJsonDocument<150> doc; // Store the last readings
   bool updated = false;
   if (dhtDelayer.canUpdate())
   {
@@ -72,11 +83,27 @@ void loop()
   if (updated)
   {
     doc["epoch"] = time.getEpochTime();
+    doc["uuid"] = deviceUid;
+#if MAIN_DEBUG
     serializeJsonPretty(doc, Serial);
-    Serial.println();
-  }
+#endif
 
-  delay(100);
+    if (!client.connected())
+    {
+      Serial.println("Connection Lost");
+      client.stop();
+      connectServer();
+    }
+
+    String json = "";
+    serializeJson(doc, json);
+    client.println(json);
+
+#if MAIN_DEBUG
+    Serial.println(json);
+#endif
+  }
+  delay(3000);
 }
 
 void readDHT11(unsigned char results[])
@@ -157,10 +184,51 @@ void connectWiFi()
 #endif
     // Connect to WPA/WPA2 network. Change this line if using open or WEP network:
     status = WiFi.begin(ssid, password);
-    delay(3000);
+    delay(5000);
   }
+  client.setTimeout(1000);
   digitalWrite(WIFI_CONNECTED_PIN, OUTPUT);
 #if MAIN_DEBUG
   printWiFiStatus();
 #endif
+}
+
+void connectServer()
+{
+  int status = client.connect(NODE_SERVER, NODE_SERVER_PORT);
+  client.println(secret);
+
+  if (status)
+  {
+    // Wait for device UUID
+    deviceUid = String(client.readString());
+
+    if (!deviceUid.length())
+    {
+      status = 0;
+    }
+#if MAIN_DEBUG
+    Serial.println("UUID:" + deviceUid);
+#endif
+  }
+
+  if (status)
+  {
+    digitalWrite(SERVER_CONNECTED_PIN, HIGH);
+  }
+  else
+  {
+    deadState(SERVER_CONNECTED_PIN);
+  }
+}
+
+void deadState(unsigned char indicatorPinLed)
+{
+  while (true)
+  {
+    digitalWrite(indicatorPinLed, HIGH);
+    delay(100);
+    digitalWrite(indicatorPinLed, LOW);
+    delay(200);
+  }
 }
