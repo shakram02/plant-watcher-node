@@ -1,5 +1,6 @@
 #pragma once
 #include <Arduino.h>
+#include <WiFi101.h>
 
 /**
  * https://learn.adafruit.com/thermistor/using-a-thermistor
@@ -7,11 +8,23 @@
 class NodeServer
 {
 private:
-    NodeServer() = default;
+    WiFiClient client;
+    String secret;
+    String deviceUid = "";
+    bool fetchUuid();
 
 public:
+    /*!
+     *  @brief Constructs a node server using device secret
+     */
+    NodeServer(const String nodeSecret) : secret(nodeSecret){};
     NodeServer(const NodeServer &) = delete;
     NodeServer &operator=(const NodeServer &) = delete;
 
-    static float getTemperature(unsigned short pinValue);
+    bool connectServer(const char *ip, int port);
+    bool isConnected();
+    void stop();
+    void sendLine(const String &content);
+    void setTimeout(unsigned long timeout);
+    String &getUuid();
 };

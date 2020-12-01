@@ -7,11 +7,13 @@
 #include <UpdateDelayer.h>
 #include <SPI.h>
 #include <WiFi101.h>
+#include <NodeServer.h>
 #include <Timing.h>
 #include "DHT.h"
 #include "secrets.h"
 const char *ssid = WIFI_SSID;
 const char *password = WIFI_SECRET;
+const char *serverIp = NODE_SERVER;
 
 #define THERMISTOR_PIN A1
 #define ANALOG_RES 10
@@ -37,13 +39,12 @@ void readDHT11(unsigned char results[]);
 void printWiFiStatus();
 void connectWiFi();
 void initServerConnection();
-bool connectServer();
 void serverDeadState(unsigned char indicatorLedPin);
 
 Timing time;
-WiFiClient client;
+
 const char *secret = NODE_SECRET;
-String deviceUid = "";
+NodeServer nodeServer(secret);
 
 void setup()
 {
@@ -87,21 +88,21 @@ void loop()
   if (updated)
   {
     doc["epoch"] = time.getEpochTime();
-    doc["uuid"] = deviceUid;
+    doc["uuid"] = nodeServer.getUuid();
 #if MAIN_DEBUG
     serializeJsonPretty(doc, Serial);
 #endif
 
-    if (!client.connected())
+    if (!nodeServer.isConnected())
     {
       Serial.println("Connection Lost");
-      client.stop();
+      nodeServer.stop();
       initServerConnection();
     }
 
     String json = "";
     serializeJson(doc, json);
-    client.println(json);
+    nodeServer.sendLine(json);
 
 #if MAIN_DEBUG
     Serial.println(json);
@@ -190,7 +191,7 @@ void connectWiFi()
     status = WiFi.begin(ssid, password);
     delay(5000);
   }
-  client.setTimeout(1000);
+
   digitalWrite(WIFI_CONNECTED_PIN, OUTPUT);
 #if MAIN_DEBUG
   printWiFiStatus();
@@ -199,7 +200,12 @@ void connectWiFi()
 
 void initServerConnection()
 {
-  bool status = connectServer();
+  bool status = nodeServer.connectServer(serverIp, NODE_SERVER_PORT);
+
+#if MAIN_DEBUG
+  Serial.println("UUID: " + nodeServer.getUuid());
+#endif
+
   if (status)
   {
     digitalWrite(SERVER_CONNECTED_PIN, HIGH);
@@ -214,30 +220,6 @@ void initServerConnection()
   }
 }
 
-bool connectServer()
-{
-  bool status = client.connect(NODE_SERVER, NODE_SERVER_PORT);
-  client.println(secret);
-
-  if (!status)
-  {
-    return false;
-  }
-
-  // Wait for device UUID
-  deviceUid = String(client.readString());
-
-  if (!deviceUid.length())
-  {
-    status = false;
-  }
-#if MAIN_DEBUG
-  Serial.println("UUID: " + deviceUid);
-#endif
-
-  return status;
-}
-
 void serverDeadState(unsigned char indicatorPinLed)
 {
   UpdateDelayer deadStateDelayer(DEADSTATE_RETRY_MILLIS);
@@ -249,8 +231,10 @@ void serverDeadState(unsigned char indicatorPinLed)
     digitalWrite(indicatorPinLed, LOW);
     delay(200);
 
-    if (deadStateDelayer.canUpdate() && connectServer())
+    if (deadStateDelayer.canUpdate() &&
+        nodeServer.connectServer(serverIp, NODE_SERVER_PORT))
     {
+      digitalWrite(SERVER_CONNECTED_PIN, HIGH);
 #if MAIN_DEBUG
       Serial.println("Exiting server dead state");
 #endif
