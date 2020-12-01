@@ -17,7 +17,7 @@ Timing::Timing()
 {
 }
 
-void Timing::setup()
+void Timing::init()
 {
     this->ntpUDP = new WiFiUDP();
     this->timeClient = new NTPClient(*ntpUDP, NTP_SERVER, UTC_OFFSET * 3600, NTP_SYNC_INTERVAL);
