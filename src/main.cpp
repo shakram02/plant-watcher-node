@@ -1,4 +1,5 @@
-#define MAIN_DEBUG 0
+#define MAIN_DEBUG 1
+#define TEMP_DEBUG 0
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
@@ -25,6 +26,8 @@ const String PATH_NAME = "/";
 #define DHT_TYPE DHT11
 #define DHT_INTERVAL 2000
 
+#define DEADSTATE_RETRY_MILLIS 10000
+
 DHT dht(DHT_PIN, DHT_TYPE);
 UpdateDelayer dhtDelayer(DHT_INTERVAL);
 UpdateDelayer tempDelayer(500);
@@ -33,8 +36,9 @@ float readTemperature();
 void readDHT11(unsigned char results[]);
 void printWiFiStatus();
 void connectWiFi();
-void connectServer();
-void deadState(unsigned char indicatorLedPin);
+void initServerConnection();
+bool connectServer();
+void serverDeadState(unsigned char indicatorLedPin);
 
 Timing time;
 WiFiClient client;
@@ -50,7 +54,7 @@ void setup()
   Serial.begin(9600);
 
   connectWiFi();
-  connectServer();
+  initServerConnection();
 #if MAIN_DEBUG
   Serial.println("WiFi connected");
 #endif
@@ -92,7 +96,7 @@ void loop()
     {
       Serial.println("Connection Lost");
       client.stop();
-      connectServer();
+      initServerConnection();
     }
 
     String json = "";
@@ -124,7 +128,7 @@ void readDHT11(unsigned char results[])
   // Compute heat index in Celsius (isFahreheit = false)
   float hic = dht.computeHeatIndex(t, h, false);
 
-#if MAIN_DEBUG
+#if MAIN_DEBUG && TEMP_DEBUG
   Serial.print(F("Humidity: "));
   Serial.print(h);
   Serial.print(F("%  Temperature: "));
@@ -144,7 +148,7 @@ float readTemperature()
 {
   unsigned short reading = analogRead(THERMISTOR_PIN);
   float temp = TemperatureSensor.getTemperature(reading);
-#if MAIN_DEBUG
+#if MAIN_DEBUG && TEMP_DEBUG
   Serial.println();
   Serial.print("TEMP> ");
   Serial.print(reading);
@@ -193,42 +197,64 @@ void connectWiFi()
 #endif
 }
 
-void connectServer()
+void initServerConnection()
 {
-  int status = client.connect(NODE_SERVER, NODE_SERVER_PORT);
-  client.println(secret);
-
-  if (status)
-  {
-    // Wait for device UUID
-    deviceUid = String(client.readString());
-
-    if (!deviceUid.length())
-    {
-      status = 0;
-    }
-#if MAIN_DEBUG
-    Serial.println("UUID:" + deviceUid);
-#endif
-  }
-
+  bool status = connectServer();
   if (status)
   {
     digitalWrite(SERVER_CONNECTED_PIN, HIGH);
   }
   else
   {
-    deadState(SERVER_CONNECTED_PIN);
+#if MAIN_DEBUG
+    Serial.println("Dead state");
+#endif
+
+    serverDeadState(SERVER_CONNECTED_PIN);
   }
 }
 
-void deadState(unsigned char indicatorPinLed)
+bool connectServer()
 {
+  bool status = client.connect(NODE_SERVER, NODE_SERVER_PORT);
+  client.println(secret);
+
+  if (!status)
+  {
+    return false;
+  }
+
+  // Wait for device UUID
+  deviceUid = String(client.readString());
+
+  if (!deviceUid.length())
+  {
+    status = false;
+  }
+#if MAIN_DEBUG
+  Serial.println("UUID: " + deviceUid);
+#endif
+
+  return status;
+}
+
+void serverDeadState(unsigned char indicatorPinLed)
+{
+  UpdateDelayer deadStateDelayer(DEADSTATE_RETRY_MILLIS);
   while (true)
   {
+    // TODO: refactor blinker with state enum
     digitalWrite(indicatorPinLed, HIGH);
     delay(100);
     digitalWrite(indicatorPinLed, LOW);
     delay(200);
+
+    if (deadStateDelayer.canUpdate() && connectServer())
+    {
+#if MAIN_DEBUG
+      Serial.println("Exiting server dead state");
+#endif
+      return;
+    }
   }
 }
