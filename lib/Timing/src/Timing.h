@@ -15,6 +15,6 @@ public:
     Timing &operator=(const Timing &) = delete;
     ~Timing();
 
-    void setup();
+    void init();
     unsigned long getEpochTime();
 };

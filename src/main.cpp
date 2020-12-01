@@ -6,23 +6,21 @@
 #include <TemperatureSensor.h>
 #include <UpdateDelayer.h>
 #include <SPI.h>
-#include <WiFi101.h>
+#include <WiFiConnection.h>
 #include <NodeServer.h>
 #include <Timing.h>
 #include "DHT.h"
 #include "secrets.h"
+
 const char *ssid = WIFI_SSID;
 const char *password = WIFI_SECRET;
-const char *serverIp = NODE_SERVER;
+const char *serverIp = NODE_SERVER; // TODO: use UDP broadcasting
+const unsigned int serverPort = NODE_SERVER_PORT;
 
 #define THERMISTOR_PIN A1
 #define ANALOG_RES 10
 #define WIFI_CONNECTED_PIN 1
 #define SERVER_CONNECTED_PIN LED_BUILTIN
-
-const String HTTP_METHOD = "POST";
-const String HOST_NAME = NODE_SERVER;
-const String PATH_NAME = "/";
 
 #define DHT_PIN 0
 #define DHT_TYPE DHT11
@@ -35,9 +33,9 @@ UpdateDelayer dhtDelayer(DHT_INTERVAL);
 UpdateDelayer tempDelayer(500);
 
 float readTemperature();
+void setupPins();
 void readDHT11(unsigned char results[]);
-void printWiFiStatus();
-void connectWiFi();
+void initWiFiConnection();
 void initServerConnection();
 void serverDeadState(unsigned char indicatorLedPin);
 
@@ -48,25 +46,18 @@ NodeServer nodeServer(secret);
 
 void setup()
 {
-  pinMode(THERMISTOR_PIN, INPUT);
-  pinMode(WIFI_CONNECTED_PIN, OUTPUT);
-  pinMode(SERVER_CONNECTED_PIN, OUTPUT);
-  analogReadResolution(ANALOG_RES);
+  setupPins();
   Serial.begin(9600);
 
-  connectWiFi();
-  initServerConnection();
-#if MAIN_DEBUG
-  Serial.println("WiFi connected");
-#endif
+  initWiFiConnection();
 
-  time.setup();
+  time.init();
   dht.begin();
 }
 
 void loop()
 {
-  StaticJsonDocument<150> doc; // Store the last readings
+  StaticJsonDocument<150> doc;
   bool updated = false;
   if (dhtDelayer.canUpdate())
   {
@@ -160,47 +151,9 @@ float readTemperature()
   return temp;
 }
 
-void printWiFiStatus()
-{
-  // print the SSID of the network you're attached to:
-  Serial.print("SSID: ");
-  Serial.println(WiFi.SSID());
-
-  // print your WiFi shield's IP address:
-  IPAddress ip = WiFi.localIP();
-  Serial.print("IP Address: ");
-  Serial.println(ip);
-
-  // print the received signal strength:
-  long rssi = WiFi.RSSI();
-  Serial.print("signal strength (RSSI):");
-  Serial.print(rssi);
-  Serial.println(" dBm");
-}
-
-void connectWiFi()
-{
-  int status = WL_IDLE_STATUS;
-  while (status != WL_CONNECTED)
-  {
-#if MAIN_DEBUG
-    Serial.print("Attempting to connect to SSID: ");
-    Serial.println(ssid);
-#endif
-    // Connect to WPA/WPA2 network. Change this line if using open or WEP network:
-    status = WiFi.begin(ssid, password);
-    delay(5000);
-  }
-
-  digitalWrite(WIFI_CONNECTED_PIN, OUTPUT);
-#if MAIN_DEBUG
-  printWiFiStatus();
-#endif
-}
-
 void initServerConnection()
 {
-  bool status = nodeServer.connectServer(serverIp, NODE_SERVER_PORT);
+  bool status = nodeServer.connectServer(serverIp, serverPort);
 
 #if MAIN_DEBUG
   Serial.println("UUID: " + nodeServer.getUuid());
@@ -225,14 +178,13 @@ void serverDeadState(unsigned char indicatorPinLed)
   UpdateDelayer deadStateDelayer(DEADSTATE_RETRY_MILLIS);
   while (true)
   {
-    // TODO: refactor blinker with state enum
     digitalWrite(indicatorPinLed, HIGH);
     delay(100);
     digitalWrite(indicatorPinLed, LOW);
     delay(200);
 
     if (deadStateDelayer.canUpdate() &&
-        nodeServer.connectServer(serverIp, NODE_SERVER_PORT))
+        nodeServer.connectServer(serverIp, serverPort))
     {
       digitalWrite(SERVER_CONNECTED_PIN, HIGH);
 #if MAIN_DEBUG
@@ -241,4 +193,28 @@ void serverDeadState(unsigned char indicatorPinLed)
       return;
     }
   }
+}
+
+void initWiFiConnection()
+{
+#if MAIN_DEBUG
+  Serial.print("Attempting to connect to SSID: ");
+  Serial.println(ssid);
+#endif
+  connectWiFi(ssid, password);
+  digitalWrite(WIFI_CONNECTED_PIN, HIGH);
+  initServerConnection();
+
+#if MAIN_DEBUG
+  printWiFiStatus();
+  Serial.println("WiFi connected");
+#endif
+}
+
+void setupPins()
+{
+  pinMode(THERMISTOR_PIN, INPUT);
+  pinMode(WIFI_CONNECTED_PIN, OUTPUT);
+  pinMode(SERVER_CONNECTED_PIN, OUTPUT);
+  analogReadResolution(ANALOG_RES);
 }
