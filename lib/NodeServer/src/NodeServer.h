@@ -1,29 +1,39 @@
 #pragma once
 #include <WiFi101.h>
-
+#include <WiFiUdp.h>
+#define DEVICE_UID_LENGTH 37
 /**
  * https://learn.adafruit.com/thermistor/using-a-thermistor
  */
 class NodeServer
 {
 private:
-    WiFiClient client;
-    String secret;
-    String deviceUid = "";
-    bool fetchUuid();
+    enum MsgType
+    {
+        Hello = 0x1,
+        Data = 0x2,
+        Command = 0x3,
+    };
+
+    WiFiUDP *client;
+    const char *secret;
+    char deviceUid[DEVICE_UID_LENGTH] = {0};
+    uint16_t port;
+    uint16_t localPort;
+    const char *ip;
+    bool send(const char *content, MsgType msgType);
 
 public:
     /*!
      *  @brief Constructs a node server using device secret
      */
-    NodeServer(const String nodeSecret) : secret(nodeSecret){};
+    NodeServer(WiFiUDP &udpSocket, const char *nodeSecret, const char *serverIp, uint16_t serverPort, uint16_t clientPort);
     NodeServer(const NodeServer &) = delete;
     NodeServer &operator=(const NodeServer &) = delete;
 
-    bool connectServer(const char *ip, int port);
-    bool isConnected();
-    void stop();
-    void sendLine(const String &content);
-    void setTimeout(unsigned long timeout);
-    String &getUuid();
+    bool initConnection();
+    bool sendData(const char *content);
+    size_t receive(char *const buffer, const size_t bufferSize);
+    int available();
+    const char *getUuid();
 };

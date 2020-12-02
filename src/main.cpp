@@ -1,4 +1,4 @@
-#define MAIN_DEBUG 1
+#define MAIN_DEBUG 0
 #define TEMP_DEBUG 0
 
 #include <Arduino.h>
@@ -11,11 +11,17 @@
 #include <Timing.h>
 #include "DHT.h"
 #include "secrets.h"
+#include <SPI.h>
+#include <WiFi101.h>
+#include <WiFiUdp.h>
 
-const char *ssid = WIFI_SSID;
-const char *password = WIFI_SECRET;
-const char *serverIp = NODE_SERVER; // TODO: use UDP broadcasting
-const unsigned int serverPort = NODE_SERVER_PORT;
+const char *const ssid = WIFI_SSID;
+const char *const password = WIFI_SECRET;
+
+const char *const serverIp = NODE_SERVER;
+const uint16_t serverPort = NODE_SERVER_PORT;
+const uint16_t localPort = 4999;
+const char *const secret = NODE_SECRET;
 
 #define THERMISTOR_PIN A1
 #define ANALOG_RES 10
@@ -28,37 +34,45 @@ const unsigned int serverPort = NODE_SERVER_PORT;
 
 #define DEADSTATE_RETRY_MILLIS 10000
 
-DHT dht(DHT_PIN, DHT_TYPE);
-UpdateDelayer dhtDelayer(DHT_INTERVAL);
-UpdateDelayer tempDelayer(500);
-
 float readTemperature();
 void setupPins();
 void readDHT11(unsigned char results[]);
 void initWiFiConnection();
+
+DHT dht(DHT_PIN, DHT_TYPE);
+UpdateDelayer dhtDelayer(DHT_INTERVAL);
+UpdateDelayer tempDelayer(500);
+
 void initServerConnection();
 void serverDeadState(unsigned char indicatorLedPin);
 
-Timing time;
-
-const char *secret = NODE_SECRET;
-NodeServer nodeServer(secret);
+WiFiUDP udp;
+Timing time(udp);
+NodeServer nodeServer(udp, secret, serverIp, serverPort, localPort);
 
 void setup()
 {
-  setupPins();
+#if MAIN_DEBUG
   Serial.begin(9600);
+#endif
+
+  delay(2000);
+  setupPins();
 
   initWiFiConnection();
 
+  udp.begin(localPort);
   time.init();
+  initServerConnection();
+
   dht.begin();
 }
 
 void loop()
 {
-  StaticJsonDocument<150> doc;
+  StaticJsonDocument<256> doc;
   bool updated = false;
+
   if (dhtDelayer.canUpdate())
   {
     updated = true;
@@ -80,26 +94,19 @@ void loop()
   {
     doc["epoch"] = time.getEpochTime();
     doc["uuid"] = nodeServer.getUuid();
-#if MAIN_DEBUG
-    serializeJsonPretty(doc, Serial);
-#endif
-
-    if (!nodeServer.isConnected())
-    {
-      Serial.println("Connection Lost");
-      nodeServer.stop();
-      initServerConnection();
-    }
 
     String json = "";
     serializeJson(doc, json);
-    nodeServer.sendLine(json);
+    if (!nodeServer.sendData(json.c_str()))
+    {
+      initServerConnection();
+    }
 
 #if MAIN_DEBUG
     Serial.println(json);
 #endif
   }
-  delay(3000);
+  delay(1000);
 }
 
 void readDHT11(unsigned char results[])
@@ -113,24 +120,14 @@ void readDHT11(unsigned char results[])
   // Check if any reads failed and exit early (to try again).
   if (isnan(h) || isnan(t))
   {
-    Serial.println(F("Failed to read from DHT sensor!"));
+    results[0] = 0xFF;
+    results[1] = 0xFF;
+    results[2] = 0xFF;
     return;
   }
 
   // Compute heat index in Celsius (isFahreheit = false)
   float hic = dht.computeHeatIndex(t, h, false);
-
-#if MAIN_DEBUG && TEMP_DEBUG
-  Serial.print(F("Humidity: "));
-  Serial.print(h);
-  Serial.print(F("%  Temperature: "));
-  Serial.print(t);
-  Serial.print(F("°C "));
-  Serial.print(F("Heat index: "));
-  Serial.print(hic);
-  Serial.print(F("°C "));
-#endif
-
   results[0] = h;
   results[1] = t;
   results[2] = hic;
@@ -140,24 +137,12 @@ float readTemperature()
 {
   unsigned short reading = analogRead(THERMISTOR_PIN);
   float temp = TemperatureSensor.getTemperature(reading);
-#if MAIN_DEBUG && TEMP_DEBUG
-  Serial.println();
-  Serial.print("TEMP> ");
-  Serial.print(reading);
-  Serial.print("\nTemperature ");
-  Serial.print(temp);
-  Serial.println(" *C");
-#endif
   return temp;
 }
 
 void initServerConnection()
 {
-  bool status = nodeServer.connectServer(serverIp, serverPort);
-
-#if MAIN_DEBUG
-  Serial.println("UUID: " + nodeServer.getUuid());
-#endif
+  bool status = nodeServer.initConnection();
 
   if (status)
   {
@@ -165,12 +150,12 @@ void initServerConnection()
   }
   else
   {
-#if MAIN_DEBUG
-    Serial.println("Dead state");
-#endif
-
     serverDeadState(SERVER_CONNECTED_PIN);
   }
+
+#if MAIN_DEBUG
+  Serial.println("UUID: " + nodeServer.getUuid());
+#endif
 }
 
 void serverDeadState(unsigned char indicatorPinLed)
@@ -184,7 +169,7 @@ void serverDeadState(unsigned char indicatorPinLed)
     delay(200);
 
     if (deadStateDelayer.canUpdate() &&
-        nodeServer.connectServer(serverIp, serverPort))
+        nodeServer.initConnection())
     {
       digitalWrite(SERVER_CONNECTED_PIN, HIGH);
 #if MAIN_DEBUG
@@ -197,17 +182,11 @@ void serverDeadState(unsigned char indicatorPinLed)
 
 void initWiFiConnection()
 {
-#if MAIN_DEBUG
-  Serial.print("Attempting to connect to SSID: ");
-  Serial.println(ssid);
-#endif
   connectWiFi(ssid, password);
   digitalWrite(WIFI_CONNECTED_PIN, HIGH);
-  initServerConnection();
 
 #if MAIN_DEBUG
   printWiFiStatus();
-  Serial.println("WiFi connected");
 #endif
 }
 

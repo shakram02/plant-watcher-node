@@ -7,10 +7,10 @@ class Timing
 {
 private:
     NTPClient *timeClient;
-    WiFiUDP *ntpUDP;
+    WiFiUDP *udp;
 
 public:
-    Timing();
+    Timing(WiFiUDP &udpSocket);
     Timing(const Timing &) = delete;
     Timing &operator=(const Timing &) = delete;
     ~Timing();

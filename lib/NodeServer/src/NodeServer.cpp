@@ -1,46 +1,65 @@
 #include "NodeServer.h"
+#include "string.h"
+#define HEADER_SIZE 1
+// Space for the null character
+#define FOOTER_SIZE 1
+#define RECV_BUFF_SIZE 32
 
-bool NodeServer::isConnected()
+NodeServer::NodeServer(WiFiUDP &udpSocket, const char *nodeSecret, const char *serverIp, uint16_t serverPort, uint16_t clientPort)
 {
-    return client.connected();
+    ip = serverIp;
+    secret = nodeSecret;
+    port = serverPort;
+    client = &udpSocket;
 }
 
-void NodeServer::stop()
+bool NodeServer::send(const char *content, MsgType msgType)
 {
-    client.stop();
+    int msgLen = strlen(content);
+    int fullLen = msgLen + HEADER_SIZE;
+
+    char buffer[fullLen] = {0};
+    buffer[0] = msgType; // TODO: add length byte
+    memcpy(buffer + 1, content, fullLen - 1);
+
+    return client->beginPacket(ip, port) &&
+           client->write(buffer, fullLen) &&
+           client->endPacket();
 }
 
-void NodeServer::sendLine(const String &content)
+bool NodeServer::sendData(const char *content)
 {
-    client.println(content);
+    return send(content, MsgType::Data);
 }
 
-void NodeServer::setTimeout(unsigned long timeout)
+size_t NodeServer::receive(char *const buffer, const size_t bufferSize)
 {
-    client.setTimeout(timeout);
+    return client->read(buffer, bufferSize);
 }
 
-bool NodeServer::connectServer(const char *ip, int port)
+int NodeServer::available()
 {
-    bool status = client.connect(ip, port);
-    client.setTimeout(1000);
+    return client->parsePacket();
+}
 
-    if (status)
+bool NodeServer::initConnection()
+{
+    if (!send(secret, MsgType::Hello))
     {
-        return fetchUuid();
+        return false;
     }
-    return status;
+
+    while (!client->parsePacket())
+    {
+        delay(10);
+    }
+
+    memset(deviceUid, 0, DEVICE_UID_LENGTH);
+    client->read(deviceUid, DEVICE_UID_LENGTH);
+    return true;
 }
 
-String &NodeServer::getUuid()
+const char *NodeServer::getUuid()
 {
     return deviceUid;
-}
-
-bool NodeServer::fetchUuid()
-{
-    client.println(secret);
-    // Wait for device UUID
-    deviceUid = String(client.readString());
-    return deviceUid.length() != 0;
 }

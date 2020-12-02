@@ -1,4 +1,4 @@
-#include <WiFi101.h>
+#include "WiFiConnection.h"
 
 void connectWiFi(const char *ssid, const char *password)
 {
@@ -13,6 +13,8 @@ void connectWiFi(const char *ssid, const char *password)
 
 void printWiFiStatus()
 {
+    Serial.println("Firmware: " + String(WiFi.firmwareVersion()));
+
     // print the SSID of the network you're attached to:
     Serial.print("SSID: ");
     Serial.println(WiFi.SSID());
