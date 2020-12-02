@@ -13,15 +13,15 @@ unsigned long Timing::getEpochTime()
     return this->timeClient->getEpochTime();
 }
 
-Timing::Timing()
+Timing::Timing(WiFiUDP &ntpUdp)
 {
+    udp = &ntpUdp;
 }
 
 void Timing::init()
 {
-    this->ntpUDP = new WiFiUDP();
-    this->timeClient = new NTPClient(*ntpUDP, NTP_SERVER, UTC_OFFSET * 3600, NTP_SYNC_INTERVAL);
-    this->timeClient->update();
+    this->timeClient = new NTPClient(*udp, NTP_SERVER, UTC_OFFSET * 3600, NTP_SYNC_INTERVAL);
+    this->timeClient->forceUpdate(); // Don't reinitialize UDP.
 }
 
 Timing::~Timing()
