@@ -131,7 +131,7 @@ void initServerConnection()
   }
 
 #if MAIN_DEBUG
-  Serial.println("UUID: " + nodeServer.getUuid());
+  Serial.println("UUID: " + String(nodeServer.getUuid()));
 #endif
 }
 

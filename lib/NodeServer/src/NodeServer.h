@@ -22,6 +22,7 @@ private:
     uint16_t localPort;
     const char *ip;
     bool send(const char *content, MsgType msgType);
+    void fillHeader(char *const buffer, MsgType msgType, const uint16_t msgLen);
 
 public:
     /*!
