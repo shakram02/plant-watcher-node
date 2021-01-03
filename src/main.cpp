@@ -1,4 +1,4 @@
-#define MAIN_DEBUG 0
+#define MAIN_DEBUG 1
 #define TEMP_DEBUG 0
 
 #include <Arduino.h>
@@ -24,6 +24,9 @@ const uint16_t serverPort = NODE_SERVER_PORT;
 const uint16_t localPort = 4999;
 const char *const secret = NODE_SECRET;
 
+#define UPDATE_INTERVAL 20000
+
+#define SOIL_PIN A2
 #define THERMISTOR_PIN A1
 #define ANALOG_RES 10
 #define WIFI_CONNECTED_PIN 1
@@ -36,13 +39,15 @@ const char *const secret = NODE_SECRET;
 #define DEADSTATE_RETRY_MILLIS 10000
 
 float readTemperature();
+int readSoilHumidity();
 void setupPins();
 
 void initWiFiConnection();
 
 DHT dht(DHT_PIN, DHT_TYPE);
 UpdateDelayer dhtDelayer(DHT_INTERVAL);
-UpdateDelayer tempDelayer(500);
+UpdateDelayer tempDelayer(2000);
+UpdateDelayer soilDelayer(2000);
 
 void initServerConnection();
 void serverDeadState(unsigned char indicatorLedPin);
@@ -87,8 +92,14 @@ void loop()
   if (tempDelayer.canUpdate())
   {
     updated = true;
-    unsigned char temperature = readTemperature();
+    float temperature = readTemperature();
     doc["temp"] = temperature;
+  }
+
+  if (soilDelayer.canUpdate())
+  {
+    updated = true;
+    doc["humidity"] = readSoilHumidity();
   }
 
   if (updated)
@@ -107,7 +118,7 @@ void loop()
     Serial.println(json);
 #endif
   }
-  delay(200);
+  delay(UPDATE_INTERVAL);
 }
 
 float readTemperature()
@@ -117,8 +128,19 @@ float readTemperature()
   return temp;
 }
 
+int readSoilHumidity()
+{
+  int output_value = analogRead(SOIL_PIN);
+  return map(output_value, 800, 200, 0, 100);
+}
+
 void initServerConnection()
 {
+
+#if MAIN_DEBUG
+  Serial.println("Connecting to: " + String(NODE_SERVER) + ":" + String(NODE_SERVER_PORT));
+#endif
+
   bool status = nodeServer.initConnection();
 
   if (status)
@@ -169,8 +191,9 @@ void initWiFiConnection()
 
 void setupPins()
 {
+  analogReadResolution(ANALOG_RES);
+  pinMode(SOIL_PIN, INPUT);
   pinMode(THERMISTOR_PIN, INPUT);
   pinMode(WIFI_CONNECTED_PIN, OUTPUT);
   pinMode(SERVER_CONNECTED_PIN, OUTPUT);
-  analogReadResolution(ANALOG_RES);
 }
